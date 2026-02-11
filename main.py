@@ -1,13 +1,14 @@
-"""ModelHub Downloader CLI - Download models from HuggingFace and ModelScope.
-
-A user-friendly CLI tool for downloading public AI models without authentication.
-Supports HuggingFace and ModelScope with ModelScope as the recommended source.
+"""ModelHub Downloader - Download models from HuggingFace & ModelScope.
 
 Usage:
-    python main.py --model Qwen/Qwen3-ASR-1.7B --source ms --output ./models
+    python main.py download <model_id>
+    python main.py clean --all
+    python main.py (interactive mode)
 """
 
+import os
 import sys
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -17,267 +18,221 @@ from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
-from core.downloader import ModelDownloader, Source, create_downloader
+try:
+    from huggingface_hub import snapshot_download, HfApi
+except ImportError:
+    print("Error: pip install huggingface_hub")
+    sys.exit(1)
 
-# Create Typer app
+try:
+    from modelscope import snapshot_download as ms_snapshot_download
+except ImportError:
+    print("Error: pip install modelscope")
+    sys.exit(1)
+
+# === 配置 ===
+DEFAULT_OUTPUT = "./models"
+SOURCE_HF = "hf"
+SOURCE_MS = "ms"
+SOURCE_AUTO = "auto"
+
+
+# === 下载器类 ===
+class ModelDownloader:
+    def __init__(self, output_dir: str = DEFAULT_OUTPUT, source: str = SOURCE_MS):
+        self.output_dir = Path(output_dir)
+        self.source = source
+
+    def validate(self, model_id: str) -> bool:
+        return bool(model_id and "/" in model_id and len(model_id.split("/")) == 2)
+
+    def get_path(self, model_id: str) -> Path:
+        return self.output_dir / model_id.split("/")[-1]
+
+    def _fmt_size(self, size: int) -> str:
+        if size >= 1024**3:
+            return f"{size / 1024**3:.1f} GB"
+        if size >= 1024**2:
+            return f"{size / 1024**2:.1f} MB"
+        if size >= 1024:
+            return f"{size / 1024:.1f} KB"
+        return f"{size} B"
+
+    def _get_size(self, model_id: str) -> Optional[int]:
+        try:
+            api = HfApi()
+            info = api.model_info(model_id, files_metadata=True)
+            return sum(
+                s.lfs.get("size", 0) if isinstance(s.lfs, dict) else s.size or 0
+                for s in info.siblings
+            )
+        except:
+            return None
+
+    def download_hf(self, model_id: str) -> bool:
+        target = self.get_path(model_id)
+        rprint(f"\n[cyan]Download from HF:[/cyan] {model_id}")
+        rprint(f"  [dim]→ {target}[/dim]")
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            if size := self._get_size(model_id):
+                rprint(f"  [dim]Size: {self._fmt_size(size)}[/dim]")
+            snapshot_download(
+                repo_id=model_id,
+                local_dir=str(target),
+                local_dir_use_symlinks=False,
+                resume_download=True,
+            )
+            rprint(f"  [green]OK[/green]")
+            return True
+        except Exception as e:
+            rprint(f"  [red]Error: {e}[/red]")
+            return False
+
+    def download_ms(self, model_id: str) -> bool:
+        target = self.get_path(model_id)
+        rprint(f"\n[cyan]Download from MS:[/cyan] {model_id}")
+        rprint(f"  [dim]→ {target}[/dim]")
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            ms_snapshot_download(model_id, local_dir=str(target))
+            rprint(f"  [green]OK[/green]")
+            return True
+        except Exception as e:
+            rprint(f"  [red]Error: {e}[/red]")
+            return False
+
+    def download(self, model_id: str) -> bool:
+        if not self.validate(model_id):
+            rprint(f"[red]Invalid model ID: {model_id}[/red]")
+            return False
+        if self.source == SOURCE_AUTO:
+            rprint("[yellow]Auto mode: Try HF → MS[/yellow]")
+            return self.download_hf(model_id) or self.download_ms(model_id)
+        return (
+            self.download_hf(model_id)
+            if self.source == SOURCE_HF
+            else self.download_ms(model_id)
+        )
+
+    def verify(self, model_id: str) -> bool:
+        target = self.get_path(model_id)
+        if not target.exists():
+            rprint(f"[red]Directory not found: {target}[/red]")
+            return False
+        files = list(target.rglob("*"))
+        count = sum(1 for f in files if f.is_file())
+        if count > 0:
+            size = sum(f.stat().st_size for f in files if f.is_file())
+            rprint(f"\n[green]Verified:[/green] {count} files, {self._fmt_size(size)}")
+            return True
+        rprint(f"\n[red]Directory is empty[/red]")
+        return False
+
+
+# === CLI ===
 app = typer.Typer(
     name="modelhub",
-    help="ModelHub Downloader - Download AI models from HuggingFace and ModelScope",
+    help="ModelHub - HuggingFace & ModelScope 下载工具",
     add_completion=False,
-    rich_markup_mode="rich",
 )
 
-# Default output directory
-DEFAULT_OUTPUT = "./models"
 
-
-def version_callback(value: bool):
-    """Print version and exit."""
-    if value:
-        rprint("[bold cyan]ModelHub Downloader[/bold cyan] v2.0.0")
-        rprint("[dim]Built with Typer + Rich[/dim]")
-        raise typer.Exit()
-
-
-@app.command("download", help="Download a model from HuggingFace or ModelScope")
-def download_model(
-    model_id: str = typer.Argument(
-        ...,
-        help="Model ID in format 'namespace/model_name' (e.g., Qwen/Qwen3-ASR-1.7B)",
-    ),
+@app.command("download")
+def download_cmd(
+    model_id: str = typer.Argument(..., help="Model ID, e.g. Qwen/Qwen3-ASR-1.7B"),
     source: str = typer.Option(
-        "ms",  # ModelScope as default
-        "--source",
-        "-s",
-        help="Download source: hf=HuggingFace, ms=ModelScope (recommended)",
-        case_sensitive=False,
+        "ms", "-s", "--source", help="hf=HF, ms=MS (default)", case_sensitive=False
     ),
     output: str = typer.Option(
-        DEFAULT_OUTPUT,
-        "--output",
-        "-o",
-        help="Output directory for downloaded models",
+        DEFAULT_OUTPUT, "-o", "--output", help="Output directory"
     ),
-    verify: bool = typer.Option(
-        True,
-        "--verify/--no-verify",
-        help="Verify download after completion",
-    ),
+    verify: bool = typer.Option(True, "--verify/--no-verify", help="Verify download"),
 ):
-    """Download a model from HuggingFace or ModelScope.
-
-    Examples:
-        [dim]# Download from ModelScope (recommended)[/dim]
-        modelhub download Qwen/Qwen3-ASR-1.7B
-
-        [dim]# Download from HuggingFace[/dim]
-        modelhub download Qwen/Qwen3-ASR-1.7B --source hf
-
-        [dim]# Download to custom directory[/dim]
-        modelhub download Qwen/Qwen3-ASR-1.7B -o D:/ComfyUI/models
-    """
-    # Validate source
-    source = source.lower()
-    if source not in ["hf", "ms", "auto"]:
-        rprint("[red]❌ Invalid source. Use 'hf' or 'ms'[/red]")
-        raise typer.Exit(1)
-
-    # Create downloader and run
-    downloader = create_downloader(
-        output_dir=output,
-        source=source,
-    )
-
-    # Download
-    success = downloader.download(model_id)
-
-    # Verify if requested
-    if verify and success:
-        downloader.verify_download(model_id)
-
-    # Exit with appropriate code
-    raise typer.Exit(0 if success else 1)
+    """Download a model"""
+    d = ModelDownloader(output_dir=output, source=source)
+    if d.download(model_id) and verify:
+        d.verify(model_id)
 
 
-@app.command("list", help="List supported sources and their status")
-def list_sources():
-    """List available download sources."""
-    table = Table(title="Download Sources")
-    table.add_column("Source", style="cyan")
-    table.add_column("Description", style="green")
-    table.add_column("Status", style="yellow")
-
-    table.add_row(
-        "ms",
-        "ModelScope (Recommended) - China's AI model hub",
-        "[green][OK][/green]",
-    )
-    table.add_row(
-        "hf",
-        "HuggingFace - Global AI model hub",
-        "[green][OK][/green]",
-    )
-    table.add_row(
-        "auto",
-        "Auto-detect - Try HF first, fallback to MS",
-        "[green][OK][/green]",
-    )
-
-    from rich.console import Console
-
-    console = Console()
-    console.print(table)
-
-
-@app.command("clean", help="Clean cache directories")
-def clean_cache(
-    hf: bool = typer.Option(False, "--hf", help="Clean HuggingFace cache"),
-    ms: bool = typer.Option(False, "--ms", help="Clean ModelScope cache"),
-    all: bool = typer.Option(False, "--all", "-a", help="Clean all caches"),
+@app.command("clean")
+def clean_cmd(
+    hf: bool = typer.Option(False, "--hf", help="Clean HF cache"),
+    ms: bool = typer.Option(False, "--ms", help="Clean MS cache"),
+    all: bool = typer.Option(False, "-a", "--all", help="Clean all caches"),
 ):
-    """Clean model cache directories."""
-    from pathlib import Path
-    import shutil
-
+    """Clean cache directories"""
     hf_cache = Path.home() / ".cache" / "huggingface"
     ms_cache = Path.home() / ".cache" / "modelscope"
-
-    cleaned = []
-
-    if all or hf:
-        if hf_cache.exists():
-            try:
-                shutil.rmtree(hf_cache)
-                cleaned.append("HuggingFace")
-                rprint(f"[green]✅ Cleaned HuggingFace cache[/green]")
-            except Exception as e:
-                rprint(f"[red]❌ Failed to clean HF cache: {e}[/red]")
-        else:
-            rprint("[dim]HuggingFace cache not found[/dim]")
-
-    if all or ms:
-        if ms_cache.exists():
-            try:
-                shutil.rmtree(ms_cache)
-                cleaned.append("ModelScope")
-                rprint(f"[green]✅ Cleaned ModelScope cache[/green]")
-            except Exception as e:
-                rprint(f"[red]❌ Failed to clean MS cache: {e}[/red]")
-        else:
-            rprint("[dim]ModelScope cache not found[/dim]")
-
-    if not cleaned:
-        rprint("[yellow]⚠️  No caches cleaned. Use --hf, --ms, or --all[/yellow]")
+    if all or hf and hf_cache.exists():
+        shutil.rmtree(hf_cache, ignore_errors=True)
+        rprint("[green]HF cache cleaned[/green]")
+    if all or ms and ms_cache.exists():
+        shutil.rmtree(ms_cache, ignore_errors=True)
+        rprint("[green]MS cache cleaned[/green]")
+    if not hf and not ms and not all:
+        rprint("[yellow]No cache to clean[/yellow]")
 
 
-@app.command("interactive", help="Interactive mode for downloading models")
-def interactive_mode():
-    """Run in interactive mode with guided prompts."""
-    rprint(
-        Panel.fit(
-            "[bold cyan]ModelHub Downloader[/bold cyan]\n"
-            "[green]Download AI models from HuggingFace & ModelScope[/green]",
-            border_style="cyan",
-        )
-    )
-
-    # Get model ID
-    model_id = Prompt.ask(
-        "[bold yellow]?[/bold yellow] Enter model ID",
-        default="Qwen/Qwen3-ASR-1.7B",
-    ).strip()
-
-    if not model_id:
-        rprint("[red]❌ Model ID cannot be empty[/red]")
-        raise typer.Exit(1)
-
-    # Select source
-    rprint("\n[bold yellow]?[/bold yellow] Select download source:")
-    rprint("  1) [cyan]ModelScope[/cyan] (Recommended - faster in China)")
-    rprint("  2) [cyan]HuggingFace[/cyan] (Global)")
-    rprint("  3) [cyan]Auto-detect[/cyan] (Try HF first)")
-
-    choice = Prompt.ask("Choose", choices=["1", "2", "3"], default="1")
-    source_map = {"1": "ms", "2": "hf", "3": "auto"}
-    source = source_map[choice]
-
-    # Get output directory
-    output = Prompt.ask(
-        "[bold yellow]?[/bold yellow] Output directory",
-        default=DEFAULT_OUTPUT,
-    ).strip()
-
-    # Confirm
-    rprint("\n[blue]─[/blue]" * 40)
-    rprint(f"[bold]Download Summary[/bold]")
-    rprint(f"  Model:    {model_id}")
-    rprint(f"  Source:   {source.upper()}")
-    rprint(f"  Output:   {output}")
-    rprint("[blue]─[/blue]" * 40)
-
-    if not Confirm.ask("Start download?", default=True):
-        rprint("[yellow]Cancelled[/yellow]")
-        raise typer.Exit()
-
-    # Download
-    downloader = create_downloader(output_dir=output, source=source)
-    success = downloader.download(model_id)
-
-    if success:
-        downloader.verify_download(model_id)
-        rprint("\n[bold green]🎉 Download completed![/bold green]")
-    else:
-        rprint("\n[bold red]❌ Download failed[/bold red]")
-        raise typer.Exit(1)
+@app.command("list")
+def list_cmd():
+    """List available sources"""
+    t = Table(title="Download Sources")
+    t.add_column("Source")
+    t.add_column("Status")
+    t.add_row("ms (推荐)", "[green]OK[/green]")
+    t.add_row("hf", "[green]OK[/green]")
+    t.add_row("auto", "[green]OK[/green]")
+    rprint(t)
 
 
 @app.command("interactive")
 def interactive_cmd():
-    """Interactive mode for downloading models."""
-    interactive_mode()
+    """Interactive mode"""
+    rprint(Panel.fit("[bold cyan]ModelHub Downloader[/bold cyan]", border_style="cyan"))
+    # Model ID
+    model_id = Prompt.ask(
+        "[yellow]?[/yellow] Model ID", default="Qwen/Qwen3-ASR-1.7B"
+    ).strip()
+    if not model_id:
+        raise typer.Exit(1)
+    # Source
+    rprint("  1) [cyan]ModelScope[/cyan] (推荐)")
+    rprint("  2) [cyan]HuggingFace[/cyan]")
+    rprint("  3) [cyan]Auto[/cyan]")
+    choice = Prompt.ask("Choose", choices=["1", "2", "3"], default="1")
+    source = {"1": SOURCE_MS, "2": SOURCE_HF, "3": SOURCE_AUTO}[choice]
+    # Output
+    output = Prompt.ask("[yellow]?[/yellow] Output", default=DEFAULT_OUTPUT).strip()
+    # Confirm - 单行分隔符
+    rprint(f"\n[cyan]=== Summary ===[/cyan]")
+    rprint(f"  Model:  {model_id}")
+    rprint(f"  Source: {source.upper()}")
+    rprint(f"  Output: {output}")
+    rprint("[cyan]=============[/cyan]")
+    if not Confirm.ask("Start download?", default=True):
+        rprint("[yellow]Cancelled[/yellow]")
+        raise typer.Exit()
+    # Download
+    d = ModelDownloader(output_dir=output, source=source)
+    if d.download(model_id):
+        d.verify(model_id)
+        rprint("\n[bold green]Done[/bold green]")
+    else:
+        rprint("\n[bold red]Failed[/bold red]")
+        raise typer.Exit(1)
 
 
 @app.callback()
-def main(
-    version: bool = typer.Option(
-        False,
-        "--version",
-        "-V",
-        help="Show version and exit",
-    ),
-):
-    """ModelHub Downloader - Download AI models from HuggingFace and ModelScope.
-
-    ModelScope is the recommended source for users in China.
-    No authentication required for public models.
-    """
-    if version:
-        rprint("[bold cyan]ModelHub Downloader[/bold cyan] v2.0.0")
-        rprint("[dim]Built with Typer + Rich[/dim]")
-        raise typer.Exit()
-
-
-def run_cli():
-    """Entry point for the CLI."""
-    import sys
-
-    # 无参数时直接进入交互模式
-    if len(sys.argv) == 1:
-        interactive_mode()
-    else:
-        app()
-
-
-if __name__ == "__main__":
-    run_cli()
+def main():
+    """ModelHub - HuggingFace & ModelScope 下载工具"""
+    pass
 
 
 if __name__ == "__main__":
     import sys
 
-    # 无参数时直接进入交互模式
     if len(sys.argv) == 1:
-        interactive_mode()
+        interactive_cmd()
     else:
-        # 有参数时让 Typer 解析
         app()
