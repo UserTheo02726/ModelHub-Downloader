@@ -184,6 +184,71 @@ def show_auth_guide():
     rprint(guide)
 
 
+# === 统一进度条 ===
+from contextlib import contextmanager
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+)
+from rich.console import Console
+
+
+class UnifiedProgressBar:
+    """
+    统一进度条组件
+
+    特性：
+    - 单进度条显示，隐藏底层库的详细输出
+    - 使用 redirect_stdout/stderr 抑制详细日志
+    - 下载完成后自动隐藏 (transient=True)
+    """
+
+    def __init__(self):
+        self._console = Console()
+        self._progress = Progress(
+            SpinnerColumn(style="cyan"),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(complete_style="green", finished_style="green"),
+            TaskProgressColumn(),
+            TextColumn("[dim]{task.completed}/{task.total}[/dim]"),
+            transient=True,
+            redirect_stdout=True,
+            redirect_stderr=True,
+            console=self._console,
+        )
+
+    @contextmanager
+    def HF(self, model_id: str):
+        """HF 下载上下文"""
+        task_id = self._progress.add_task(
+            f"Downloading [cyan]{model_id}[/cyan] from HuggingFace...",
+            total=100,
+        )
+        self._progress.start()
+        try:
+            yield
+        finally:
+            self._progress.update(task_id, completed=100)
+            self._progress.stop()
+
+    @contextmanager
+    def MS(self, model_id: str):
+        """MS 下载上下文"""
+        task_id = self._progress.add_task(
+            f"Downloading [cyan]{model_id}[/cyan] from ModelScope...",
+            total=100,
+        )
+        self._progress.start()
+        try:
+            yield
+        finally:
+            self._progress.update(task_id, completed=100)
+            self._progress.stop()
+
+
 # === 下载会话 ===
 class DownloadSession:
     """
