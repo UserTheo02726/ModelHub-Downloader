@@ -110,20 +110,22 @@ def list_sources():
     table.add_row(
         "ms",
         "ModelScope (Recommended) - China's AI model hub",
-        "[green]✓ Available[/green]",
+        "[green][OK][/green]",
     )
     table.add_row(
         "hf",
         "HuggingFace - Global AI model hub",
-        "[green]✓ Available[/green]",
+        "[green][OK][/green]",
     )
     table.add_row(
         "auto",
         "Auto-detect - Try HF first, fallback to MS",
-        "[green]✓ Available[/green]",
+        "[green][OK][/green]",
     )
 
-    console = typer.get_console()
+    from rich.console import Console
+
+    console = Console()
     console.print(table)
 
 
