@@ -139,8 +139,6 @@ def clean_cache(
     from pathlib import Path
     import shutil
 
-    console = typer.get_console()
-
     hf_cache = Path.home() / ".cache" / "huggingface"
     ms_cache = Path.home() / ".cache" / "modelscope"
 
@@ -233,14 +231,18 @@ def interactive_mode():
         raise typer.Exit(1)
 
 
-@app.callback(invoke_without_command=True)
+@app.command("interactive")
+def interactive_cmd():
+    """Interactive mode for downloading models."""
+    interactive_mode()
+
+
+@app.callback()
 def main(
     version: bool = typer.Option(
         False,
         "--version",
         "-V",
-        callback=version_callback,
-        is_eager=True,
         help="Show version and exit",
     ),
 ):
@@ -249,7 +251,10 @@ def main(
     ModelScope is the recommended source for users in China.
     No authentication required for public models.
     """
-    pass
+    if version:
+        rprint("[bold cyan]ModelHub Downloader[/bold cyan] v2.0.0")
+        rprint("[dim]Built with Typer + Rich[/dim]")
+        raise typer.Exit()
 
 
 def run_cli():
