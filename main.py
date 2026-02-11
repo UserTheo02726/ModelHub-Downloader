@@ -457,7 +457,12 @@ def main():
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) == 1:
-        interactive_cmd()
-    else:
-        app()
+    try:
+        if len(sys.argv) == 1:
+            interactive_cmd()
+        else:
+            app()
+    except KeyboardInterrupt:
+        # 优雅处理用户中断 (Ctrl+C)
+        rprint("\n[yellow]Cancelled by user[/yellow]")
+        sys.exit(0)
