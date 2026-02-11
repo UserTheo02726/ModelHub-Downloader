@@ -264,6 +264,8 @@ class DownloadSession:
     def __init__(self):
         self.config = DownloadConfig()
         self.download_history: list[str] = []
+        self.auth_checker = AuthChecker()
+        self.progress_bar = UnifiedProgressBar()
 
     def add_to_history(self, model_id: str):
         """
@@ -455,14 +457,34 @@ class DownloadSession:
         Returns:
             bool: True 表示下载成功，False 表示失败
         """
-        from rich import print as rprint
+        # 1. 检查认证（仅针对 HF 源）
+        if self.config.source in ("hf", "auto"):
+            needs_auth, error_msg = self.auth_checker.check_model_access(
+                self.config.model_id, self.config.source
+            )
+            if needs_auth:
+                choice = show_auth_error(
+                    self.config.model_id, self.config.source, error_msg
+                )
+                if choice == "2":  # 返回主菜单
+                    return False
+                # choice == "1" 继续尝试下载（可能用户已登录）
 
+        # 2. 创建下载器
         d = ModelDownloader(
             output_dir=self.config.output_dir or DEFAULT_OUTPUT,
             source=self.config.source,
         )
 
-        if d.download(self.config.model_id):
+        # 3. 使用进度条执行下载
+        context = self.progress_bar.MS(self.config.model_id)
+        if self.config.source == "hf":
+            context = self.progress_bar.HF(self.config.model_id)
+
+        with context:
+            success = d.download(self.config.model_id)
+
+        if success:
             d.verify(self.config.model_id)
             self.add_to_history(self.config.model_id)
             return True
