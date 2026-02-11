@@ -40,6 +40,33 @@ SOURCE_MS = "ms"
 SOURCE_AUTO = "auto"
 
 
+# === 下载配置 ===
+from dataclasses import dataclass
+
+
+@dataclass
+class DownloadConfig:
+    """下载配置数据类"""
+
+    model_id: str = ""
+    source: str = SOURCE_MS
+    output_dir: str = DEFAULT_OUTPUT
+
+    def is_complete(self) -> bool:
+        """
+        检查配置是否完整
+
+        规则: model_id 非空且包含 "/"
+        """
+        return bool(self.model_id and self.model_id.strip() and "/" in self.model_id)
+
+    def reset(self):
+        """重置为默认值"""
+        self.model_id = ""
+        self.source = SOURCE_MS
+        self.output_dir = DEFAULT_OUTPUT
+
+
 # === 异常类 ===
 class ModelDownloadError(Exception):
     """模型下载基异常"""
