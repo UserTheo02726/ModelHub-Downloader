@@ -185,7 +185,50 @@ class ModelDownloader:
         return model_id_validator(model_id)
 
     def get_path(self, model_id: str) -> Path:
-        return self.output_dir / model_id.split("/")[-1]
+        """
+        获取模型下载目标路径
+
+        Args:
+            model_id: 模型 ID
+
+        Returns:
+            Path: 下载目标路径
+
+        Raises:
+            ValidationError: 输出路径不安全
+        """
+        # 验证 model_id
+        if not self.validate(model_id):
+            raise ValidationError("model_id", model_id, "Invalid format")
+
+        # 获取模型名
+        model_name = model_id.split("/")[-1]
+
+        # 构建完整路径
+        full_path = self.output_dir / model_name
+
+        # 验证路径安全
+        normalized = full_path.resolve()
+
+        # 获取输出目录的绝对路径
+        output_dir_resolved = self.output_dir.resolve()
+
+        # 确保目标路径在输出目录内
+        try:
+            normalized.relative_to(output_dir_resolved)
+        except ValueError:
+            raise ValidationError(
+                "output_dir", str(full_path), "Path traversal not allowed"
+            )
+
+        # 额外检查相对路径中的 ".."
+        path_str = str(full_path).replace("\\", "/")
+        if "/../" in path_str or path_str.startswith("../") or path_str.endswith("/.."):
+            raise ValidationError(
+                "output_dir", str(full_path), "Path traversal not allowed"
+            )
+
+        return full_path
 
     def _fmt_size(self, size: int) -> str:
         if size >= 1024**3:
