@@ -1,4 +1,9 @@
+# Core dependencies
 tqdm>=4.60
 rich>=13.0
 huggingface_hub>=0.20
 modelscope>=1.7
+
+# CLI dependencies
+typer>=0.9.0
+httpx>=0.25.0
