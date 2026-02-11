@@ -259,8 +259,25 @@ def main(
 
 def run_cli():
     """Entry point for the CLI."""
-    app()
+    import sys
+
+    # 无参数时直接进入交互模式
+    if len(sys.argv) == 1:
+        interactive_mode()
+    else:
+        app()
 
 
 if __name__ == "__main__":
     run_cli()
+
+
+if __name__ == "__main__":
+    import sys
+
+    # 无参数时直接进入交互模式
+    if len(sys.argv) == 1:
+        interactive_mode()
+    else:
+        # 有参数时让 Typer 解析
+        app()
