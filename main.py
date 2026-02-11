@@ -116,6 +116,56 @@ def path_validator(path: str) -> bool:
     return True
 
 
+# === 模型 ID 验证器 ===
+def model_id_validator(model_id: str) -> bool:
+    """
+    验证模型 ID 格式
+
+    规则:
+    1. 必须包含 exactly one "/"
+    2. 组织名和模型名只能包含字母、数字、连字符、下划线、点
+    3. 长度限制 (组织 <= 100, 模型 <= 200)
+    4. 不能以连字符或点开头/结尾
+
+    Args:
+        model_id: 待验证的模型 ID
+
+    Returns:
+        bool: 格式是否有效
+    """
+    # 空值检查
+    if not model_id or not isinstance(model_id, str):
+        return False
+
+    # 必须包含 exactly one "/"
+    parts = model_id.split("/")
+    if len(parts) != 2:
+        return False
+
+    org, model = parts
+
+    # 长度限制
+    if len(org) > 100 or len(model) > 200:
+        return False
+
+    # 不能为空
+    if not org or not model:
+        return False
+
+    # 字符白名单 (字母、数字、连字符、下划线、点)
+    valid_pattern = r"^[a-zA-Z0-9_\-\.]+$"
+    if not (re.match(valid_pattern, org) and re.match(valid_pattern, model)):
+        return False
+
+    # 不能以连字符或点开头/结尾
+    if org[0] in ("-", ".") or org[-1] in ("-", "."):
+        return False
+    if model[0] in ("-", ".") or model[-1] in ("-", "."):
+        return False
+
+    return True
+
+
 # === 日志配置 ===
 logging.basicConfig(
     level=logging.INFO,
@@ -131,7 +181,8 @@ class ModelDownloader:
         self.source = source
 
     def validate(self, model_id: str) -> bool:
-        return bool(model_id and "/" in model_id and len(model_id.split("/")) == 2)
+        """验证模型 ID 格式"""
+        return model_id_validator(model_id)
 
     def get_path(self, model_id: str) -> Path:
         return self.output_dir / model_id.split("/")[-1]
