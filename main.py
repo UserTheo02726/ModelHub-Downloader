@@ -77,6 +77,49 @@ class DownloadConfig:
         self.output_dir = DEFAULT_OUTPUT
 
 
+# === 认证检查器 ===
+from typing import Tuple
+from httpx import HTTPStatusError
+
+
+class AuthChecker:
+    """
+    认证状态检查器
+
+    在下载前检查模型是否需要认证
+    使用 HuggingFace 官方异常类型进行精确检测
+    """
+
+    def check_model_access(self, model_id: str, source: str) -> Tuple[bool, str]:
+        """
+        检查模型访问权限
+
+        Args:
+            model_id: 模型 ID
+            source: 下载源 (hf/ms/auto)
+
+        Returns:
+            Tuple[需要认证, 错误信息]
+        """
+        # 只检查 HF 源
+        if source != "hf":
+            return False, ""
+
+        try:
+            # 轻量级 API 调用
+            HfApi().model_info(model_id, files_metadata=False, timeout=10)
+            return False, ""
+        except GatedRepoError as e:
+            return True, str(e)
+        except HTTPStatusError as e:
+            if e.response.status_code == 401:
+                return True, f"401 Unauthorized: 可能需要认证或已达到下载限速"
+            return False, ""
+        except Exception:
+            # 网络错误、超时等不视为认证问题
+            return False, ""
+
+
 # === 下载会话 ===
 class DownloadSession:
     """
