@@ -9,6 +9,8 @@ Usage:
 import os
 import sys
 import shutil
+import re
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -29,6 +31,13 @@ try:
 except ImportError:
     print("Error: pip install modelscope")
     sys.exit(1)
+
+
+# === 配置 ===
+DEFAULT_OUTPUT = "./models"
+SOURCE_HF = "hf"
+SOURCE_MS = "ms"
+SOURCE_AUTO = "auto"
 
 
 # === 异常类 ===
@@ -73,9 +82,6 @@ class DownloadError(ModelDownloadError):
 
 
 # === 路径验证器 ===
-import re
-
-
 def path_validator(path: str) -> bool:
     """
     验证路径安全性
@@ -110,14 +116,15 @@ def path_validator(path: str) -> bool:
     return True
 
 
-# === 配置 ===
-DEFAULT_OUTPUT = "./models"
-SOURCE_HF = "hf"
-SOURCE_MS = "ms"
-SOURCE_AUTO = "auto"
+# === 日志配置 ===
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()],
+)
+logger = logging.getLogger("ModelDownloader")
 
 
-# === 下载器类 ===
 class ModelDownloader:
     def __init__(self, output_dir: str = DEFAULT_OUTPUT, source: str = SOURCE_MS):
         self.output_dir = Path(output_dir)
@@ -150,6 +157,18 @@ class ModelDownloader:
             return None
 
     def download_hf(self, model_id: str) -> bool:
+        """
+        从 HuggingFace 下载模型
+
+        Args:
+            model_id: 模型 ID (格式: org/model-name)
+
+        Returns:
+            bool: 下载是否成功
+
+        Raises:
+            DownloadError: 下载过程发生错误
+        """
         target = self.get_path(model_id)
         rprint(f"\n[cyan]Download from HF:[/cyan] {model_id}")
         rprint(f"  [dim]→ {target}[/dim]")
@@ -164,12 +183,26 @@ class ModelDownloader:
                 resume_download=True,
             )
             rprint(f"  [green]OK[/green]")
+            logger.info(f"Successfully downloaded {model_id} from HF")
             return True
         except Exception as e:
             rprint(f"  [red]Error: {e}[/red]")
-            return False
+            logger.error(f"Download failed for {model_id} from HF", exc_info=True)
+            raise DownloadError(model_id, "HF", e) from e
 
     def download_ms(self, model_id: str) -> bool:
+        """
+        从 ModelScope 下载模型
+
+        Args:
+            model_id: 模型 ID
+
+        Returns:
+            bool: 下载是否成功
+
+        Raises:
+            DownloadError: 下载过程发生错误
+        """
         target = self.get_path(model_id)
         rprint(f"\n[cyan]Download from MS:[/cyan] {model_id}")
         rprint(f"  [dim]→ {target}[/dim]")
@@ -177,15 +210,33 @@ class ModelDownloader:
             target.mkdir(parents=True, exist_ok=True)
             ms_snapshot_download(model_id, local_dir=str(target))
             rprint(f"  [green]OK[/green]")
+            logger.info(f"Successfully downloaded {model_id} from MS")
             return True
         except Exception as e:
             rprint(f"  [red]Error: {e}[/red]")
-            return False
+            logger.error(f"Download failed for {model_id} from MS", exc_info=True)
+            raise DownloadError(model_id, "MS", e) from e
 
     def download(self, model_id: str) -> bool:
+        """
+        下载模型（自动选择源）
+
+        Args:
+            model_id: 模型 ID
+
+        Returns:
+            bool: 下载是否成功
+
+        Raises:
+            ValidationError: model_id 格式无效
+        """
+        # 验证
         if not self.validate(model_id):
-            rprint(f"[red]Invalid model ID: {model_id}[/red]")
-            return False
+            msg = f"Invalid model ID format: {model_id}"
+            rprint(f"[red]{msg}[/red]")
+            logger.warning(f"Validation failed: {model_id}")
+            raise ValidationError("model_id", model_id, "Must be in 'org/model' format")
+
         if self.source == SOURCE_AUTO:
             rprint("[yellow]Auto mode: Try HF → MS[/yellow]")
             return self.download_hf(model_id) or self.download_ms(model_id)
