@@ -60,6 +60,15 @@ class DownloadConfig:
         """
         return bool(self.model_id and self.model_id.strip() and "/" in self.model_id)
 
+    def validate(self) -> bool:
+        """
+        验证配置有效性
+
+        Returns:
+            bool: True 表示有效
+        """
+        return self.is_complete()
+
     def reset(self):
         """重置为默认值"""
         self.model_id = ""
@@ -206,12 +215,169 @@ class DownloadSession:
             "[Enter] 开始下载  [1/2/3] 修改  [m] 主菜单  [q] 退出", default=""
         )
 
+    def run_download_setup(self) -> bool:
+        """
+        运行下载配置流程
+
+        Returns:
+            bool: True 表示完成配置并准备下载，False 表示用户返回
+        """
+        from rich.prompt import Prompt
+        from rich import print as rprint
+
+        # 进入配置循环
+        while True:
+            action = self.show_config_summary()
+
+            if action == "":
+                # 开始下载
+                if self.config.validate():
+                    return True
+                else:
+                    rprint("[red]配置无效，请检查[/red]")
+
+            elif action == "1":
+                # 修改 Model ID
+                new_id = self.step_input(
+                    "Model ID",
+                    "输入 Model ID",
+                    default=self.config.model_id or "",
+                    validate=lambda x: bool(x and "/" in x),
+                )
+                if new_id is not None:
+                    self.config.model_id = new_id
+
+            elif action == "2":
+                # 修改 Source
+                rprint("\n  1) [cyan]ModelScope[/cyan] (推荐)")
+                rprint("  2) [cyan]HuggingFace[/cyan]")
+                rprint("  3) [cyan]Auto[/cyan]")
+                choice = Prompt.ask("选择", choices=["1", "2", "3"], default="1")
+                source_map = {"1": SOURCE_MS, "2": SOURCE_HF, "3": SOURCE_AUTO}
+                self.config.source = source_map[choice]
+
+            elif action == "3":
+                # 修改 Output
+                new_output = self.step_input(
+                    "Output",
+                    "输入输出目录",
+                    default=self.config.output_dir or DEFAULT_OUTPUT,
+                    validate=lambda x: bool(x.strip()),
+                )
+                if new_output is not None:
+                    self.config.output_dir = new_output
+
+            elif action == "m":
+                # 返回主菜单
+                return False
+
+            elif action.lower() == "q":
+                # 退出
+                raise typer.Exit(0)
+
+    def execute_download(self) -> bool:
+        """
+        执行下载
+
+        Returns:
+            bool: True 表示下载成功，False 表示失败
+        """
+        from rich import print as rprint
+
+        d = ModelDownloader(
+            output_dir=self.config.output_dir or DEFAULT_OUTPUT,
+            source=self.config.source,
+        )
+
+        if d.download(self.config.model_id):
+            d.verify(self.config.model_id)
+            self.add_to_history(self.config.model_id)
+            return True
+        return False
+
+    def show_current_config(self):
+        """显示当前配置"""
+        from rich.table import Table
+
+        t = Table(title="当前配置", show_header=False, box=None)
+        t.add_column("选项", style="cyan", width=18)
+        t.add_column("值", style="green")
+
+        model_display = self.config.model_id or "[未设置]"
+        t.add_row("Model ID", model_display)
+
+        source_display_map = {
+            "ms": "ModelScope (推荐)",
+            "hf": "HuggingFace",
+            "auto": "Auto (自动尝试)",
+        }
+        source_display = source_display_map.get(self.config.source, self.config.source)
+        t.add_row("Source", source_display)
+
+        t.add_row("Output", self.config.output_dir or DEFAULT_OUTPUT)
+
+        rprint("\n")
+        rprint(t)
+        rprint("\n")
+
+    def run_clean_cache(self):
+        """清理缓存"""
+        from rich.prompt import Prompt
+
+        choice = Prompt.ask(
+            "清理所有缓存? ([y] 是  [n] 否)", choices=["y", "n"], default="n"
+        )
+        if choice == "y":
+            _do_clean_cache(clean_all=True)
+            rprint("[green]缓存已清理[/green]")
+
+    def show_continue_menu(self) -> str:
+        """
+        显示下载后继续菜单
+
+        Returns:
+            str: 用户选择的操作
+        """
+        from rich.prompt import Prompt
+        from rich.panel import Panel
+
+        menu = Panel.fit(
+            "[bold cyan]下载完成[/bold cyan]\n\n"
+            "  1) 继续下载其他模型\n"
+            "  2) 修改当前配置后下载\n"
+            "  3) 查看下载历史\n"
+            "  4) 退出",
+            border_style="green",
+        )
+        rprint(menu)
+
+        return Prompt.ask("选择", choices=["1", "2", "3", "4"], default="1")
+
+    def ask_reuse_config(self) -> str:
+        """
+        询问是否复用当前配置
+
+        Returns:
+            str: "y" 复用，"n" 新建，"m" 主菜单
+        """
+        from rich import print as rprint
+        from rich.prompt import Prompt
+
+        rprint("[yellow]检测到已有配置，是否复用?[/yellow]")
+        choice = Prompt.ask(
+            "([y] 复用  [n] 新建  [m] 主菜单)",
+            choices=["y", "n", "m"],
+            default="y",
+        )
+
+        return choice
+
 
 # === 异常类 ===
 class ModelDownloadError(Exception):
     """模型下载基异常"""
 
-    def __init__(self, message: str, details: dict = None):
+    def __init__(self, message: str, details: dict | None = None):
         self.message = message
         self.details = details or {}
         super().__init__(self.message)
@@ -254,7 +420,7 @@ def path_validator(path: str) -> bool:
     验证路径安全性
 
     规则:
-    1. 不允许路径遍历 (../ 或 ..\)
+    1. 不允许路径遍历 (../ 或 ..\\)
     2. 不允许特殊字符 (空格、制表符等)
     3. 不允许绝对路径遍历
 
@@ -410,6 +576,8 @@ class ModelDownloader:
         try:
             api = HfApi()
             info = api.model_info(model_id, files_metadata=True)
+            if not info.siblings:
+                return 0
             return sum(
                 s.lfs.get("size", 0) if isinstance(s.lfs, dict) else s.size or 0
                 for s in info.siblings
@@ -440,8 +608,7 @@ class ModelDownloader:
             snapshot_download(
                 repo_id=model_id,
                 local_dir=str(target),
-                local_dir_use_symlinks=False,
-                resume_download=True,
+                local_dir_use_symlinks=False,  # type: ignore[arg-type]
             )
             rprint(f"  [green]OK[/green]")
             logger.info(f"Successfully downloaded {model_id} from HF")
@@ -547,6 +714,29 @@ def download_cmd(
         d.verify(model_id)
 
 
+def _do_clean_cache(
+    clean_all: bool = False, clean_hf: bool = False, clean_ms: bool = False
+):
+    """
+    执行缓存清理
+
+    Args:
+        clean_all: 清理所有缓存
+        clean_hf: 只清理 HuggingFace 缓存
+        clean_ms: 只清理 ModelScope 缓存
+    """
+    hf_cache = Path.home() / ".cache" / "huggingface"
+    ms_cache = Path.home() / ".cache" / "modelscope"
+    if clean_all or clean_hf and hf_cache.exists():
+        shutil.rmtree(hf_cache, ignore_errors=True)
+        rprint("[green]HF cache cleaned[/green]")
+    if clean_all or clean_ms and ms_cache.exists():
+        shutil.rmtree(ms_cache, ignore_errors=True)
+        rprint("[green]MS cache cleaned[/green]")
+    if not clean_all and not clean_hf and not clean_ms:
+        rprint("[yellow]No cache to clean[/yellow]")
+
+
 @app.command("clean")
 def clean_cmd(
     hf: bool = typer.Option(False, "--hf", help="Clean HF cache"),
@@ -554,16 +744,7 @@ def clean_cmd(
     all: bool = typer.Option(False, "-a", "--all", help="Clean all caches"),
 ):
     """Clean cache directories"""
-    hf_cache = Path.home() / ".cache" / "huggingface"
-    ms_cache = Path.home() / ".cache" / "modelscope"
-    if all or hf and hf_cache.exists():
-        shutil.rmtree(hf_cache, ignore_errors=True)
-        rprint("[green]HF cache cleaned[/green]")
-    if all or ms and ms_cache.exists():
-        shutil.rmtree(ms_cache, ignore_errors=True)
-        rprint("[green]MS cache cleaned[/green]")
-    if not hf and not ms and not all:
-        rprint("[yellow]No cache to clean[/yellow]")
+    _do_clean_cache(clean_all=all, clean_hf=hf, clean_ms=ms)
 
 
 @app.command("list")
@@ -580,39 +761,74 @@ def list_cmd():
 
 @app.command("interactive")
 def interactive_cmd():
-    """Interactive mode"""
-    rprint(Panel.fit("[bold cyan]ModelHub Downloader[/bold cyan]", border_style="cyan"))
-    # Model ID
-    model_id = Prompt.ask(
-        "[yellow]?[/yellow] Model ID", default="Qwen/Qwen3-ASR-1.7B"
-    ).strip()
-    if not model_id:
-        raise typer.Exit(1)
-    # Source
-    rprint("  1) [cyan]ModelScope[/cyan] (推荐)")
-    rprint("  2) [cyan]HuggingFace[/cyan]")
-    rprint("  3) [cyan]Auto[/cyan]")
-    choice = Prompt.ask("Choose", choices=["1", "2", "3"], default="1")
-    source = {"1": SOURCE_MS, "2": SOURCE_HF, "3": SOURCE_AUTO}[choice]
-    # Output
-    output = Prompt.ask("[yellow]?[/yellow] Output", default=DEFAULT_OUTPUT).strip()
-    # Confirm - 单行分隔符
-    rprint(f"\n[cyan]=== Summary ===[/cyan]")
-    rprint(f"  Model:  {model_id}")
-    rprint(f"  Source: {source.upper()}")
-    rprint(f"  Output: {output}")
-    rprint("[cyan]=============[/cyan]")
-    if not Confirm.ask("Start download?", default=True):
-        rprint("[yellow]Cancelled[/yellow]")
-        raise typer.Exit()
-    # Download
-    d = ModelDownloader(output_dir=output, source=source)
-    if d.download(model_id):
-        d.verify(model_id)
-        rprint("\n[bold green]Done[/bold green]")
-    else:
-        rprint("\n[bold red]Failed[/bold red]")
-        raise typer.Exit(1)
+    """
+    交互式下载模式
+
+    使用 DownloadSession 管理整个交互流程:
+    - 主菜单导航
+    - 下载配置和执行
+    - 下载后继续选项
+    """
+    session = DownloadSession()
+
+    try:
+        while True:
+            choice = session.show_main_menu()
+
+            if choice == "1":
+                # 开始下载流程
+                if session.run_download_setup():
+                    rprint(f"正在下载 {session.config.model_id}...")
+                    if session.execute_download():
+                        rprint("\n[bold green]下载完成![/bold green]")
+
+                        # 显示继续菜单
+                        while True:
+                            cont_choice = session.show_continue_menu()
+
+                            if cont_choice == "1":
+                                # 继续下载 - 重置配置
+                                session.config.reset()
+                                break
+                            elif cont_choice == "2":
+                                # 修改配置后下载
+                                if session.run_download_setup():
+                                    rprint(f"正在下载 {session.config.model_id}...")
+                                    if session.execute_download():
+                                        rprint("\n[bold green]下载完成![/bold green]")
+                                    else:
+                                        rprint("\n[bold red]下载失败[/bold red]")
+                            elif cont_choice == "3":
+                                # 查看下载历史
+                                if session.download_history:
+                                    rprint("\n下载历史:")
+                                    for i, model_id in enumerate(
+                                        session.download_history, 1
+                                    ):
+                                        rprint(f"  {i}) {model_id}")
+                                else:
+                                    rprint("\n暂无下载历史")
+                            else:
+                                # 退出
+                                rprint("[yellow]再见！[/yellow]")
+                                raise typer.Exit(0)
+
+            elif choice == "2":
+                # 查看当前配置
+                session.show_current_config()
+
+            elif choice == "3":
+                # 清理缓存
+                session.run_clean_cache()
+
+            elif choice == "4":
+                # 退出
+                rprint("[yellow]再见！[/yellow]")
+                raise typer.Exit(0)
+
+    except KeyboardInterrupt:
+        rprint("\n[yellow]已取消[/yellow]")
+        raise typer.Exit(0)
 
 
 @app.callback()
