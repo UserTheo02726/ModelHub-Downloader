@@ -30,6 +30,86 @@ except ImportError:
     print("Error: pip install modelscope")
     sys.exit(1)
 
+
+# === 异常类 ===
+class ModelDownloadError(Exception):
+    """模型下载基异常"""
+
+    def __init__(self, message: str, details: dict = None):
+        self.message = message
+        self.details = details or {}
+        super().__init__(self.message)
+
+    def __str__(self):
+        if self.details:
+            return f"{self.message} (details: {self.details})"
+        return self.message
+
+
+class ValidationError(ModelDownloadError):
+    """验证失败异常"""
+
+    def __init__(self, field: str, value: str, reason: str):
+        self.field = field
+        self.value = value
+        self.reason = reason
+        super().__init__(
+            f"Validation failed for '{field}': {reason}",
+            {"field": field, "value": value, "reason": reason},
+        )
+
+
+class DownloadError(ModelDownloadError):
+    """下载过程异常"""
+
+    def __init__(self, model_id: str, source: str, original_error: Exception):
+        self.model_id = model_id
+        self.source = source
+        self.original_error = original_error
+        super().__init__(
+            f"Download failed for {model_id} from {source}: {original_error}",
+            {"model_id": model_id, "source": source},
+        )
+
+
+# === 路径验证器 ===
+import re
+
+
+def path_validator(path: str) -> bool:
+    """
+    验证路径安全性
+
+    规则:
+    1. 不允许路径遍历 (../ 或 ..\)
+    2. 不允许特殊字符 (空格、制表符等)
+    3. 不允许绝对路径遍历
+
+    Args:
+        path: 待验证的路径
+
+    Returns:
+        bool: 路径是否安全
+    """
+    # 检查路径遍历
+    if ".." in path.replace("\\", "/"):
+        return False
+
+    # 检查特殊字符
+    if re.search(r"[\s\t\n\r]", path):
+        return False
+
+    # 检查绝对路径遍历
+    normalized = path.replace("\\", "/")
+    if normalized.startswith("/"):
+        # 允许简单绝对路径，不允许遍历
+        parts = [p for p in normalized.split("/") if p]
+        if ".." in parts:
+            return False
+
+    return True
+
+
 # === 配置 ===
 DEFAULT_OUTPUT = "./models"
 SOURCE_HF = "hf"
