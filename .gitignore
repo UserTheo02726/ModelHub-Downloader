@@ -3,12 +3,18 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.py[cod]
 .Python
 env/
 venv/
 .venv/
 pip-log.txt
 pip-delete-this-directory.txt
+
+# Linter caches
+.ruff_cache/
+.pytest_cache/
+
 
 # Environment Variables
 .env
@@ -25,6 +31,14 @@ pip-delete-this-directory.txt
 .DS_Store
 Thumbs.db
 
-.ref/
+# Development tools
+.sisyphus/
 .trae/
+.rult/
+/
+
+# Project.ruy specific
+.ref/
 .gitignore
+coverage/
+.htmlcov/
