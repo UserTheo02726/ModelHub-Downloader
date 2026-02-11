@@ -114,6 +114,54 @@ class DownloadSession:
 
         return Prompt.ask("选择", choices=["1", "2", "3", "4"], default="1")
 
+    def step_input(
+        self, title: str, prompt: str, default: str = "", validate=None
+    ) -> str | None:
+        """
+        通用步骤输入方法（两步确认）
+
+        Args:
+            title: 步骤标题（显示在面板顶部）
+            prompt: 提示文本
+            default: 默认值
+            validate: 验证函数，返回 True 表示有效
+
+        Returns:
+            str: 用户确认的输入值
+            None: 用户选择返回
+            (永不返回): 用户选择取消
+        """
+        from rich.prompt import Prompt
+        from rich.panel import Panel
+
+        # 构建步骤面板
+        panel = Panel.fit(
+            f"[bold]Step {title}[/bold]\n\n"
+            f"? [yellow]{prompt}[/yellow]: [dim]{default}[/dim]\n\n"
+            "[b] 返回  [c] 取消",
+            border_style="cyan",
+        )
+        rprint(panel)
+
+        # 获取用户输入
+        value = Prompt.ask(prompt, default=default).strip()
+
+        # 处理特殊输入
+        if value.lower() == "b":
+            rprint("[yellow]已返回[/yellow]")
+            return None
+
+        if value.lower() == "c":
+            rprint("[yellow]已取消[/yellow]")
+            raise typer.Exit(0)
+
+        # 验证输入
+        if validate and not validate(value):
+            rprint("[red]输入无效，请重新输入[/red]")
+            return self.step_input(title, prompt, default, validate)
+
+        return value
+
 
 # === 异常类 ===
 class ModelDownloadError(Exception):
