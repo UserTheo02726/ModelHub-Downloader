@@ -120,6 +120,70 @@ class AuthChecker:
             return False, ""
 
 
+# === UI 函数 ===
+def show_auth_error(model_id: str, source: str, error_msg: str = "") -> str:
+    """
+    显示认证错误信息并询问用户操作
+
+    Args:
+        model_id: 模型 ID
+        source: 下载源
+        error_msg: GatedRepoError 原始错误信息
+
+    Returns:
+        str: 用户选择的操作 ("1"=指南, "2"=返回, "3"=重试)
+    """
+    error_panel = Panel.fit(
+        f"[bold red]认证错误[/bold red]\n\n"
+        f"模型 [cyan]{model_id}[/cyan] 需要认证才能下载。\n\n"
+        f"[yellow]详细信息:[/yellow]\n"
+        f"  {error_msg}\n\n"
+        f"[yellow]快速解决:[/yellow]\n"
+        f"  1. 访问 https://huggingface.co/{model_id}\n"
+        f"  2. 登录账户并接受使用协议\n"
+        f"  3. 设置 HF_TOKEN 环境变量",
+        title="认证失败",
+        border_style="red",
+    )
+    rprint(error_panel)
+
+    return Prompt.ask(
+        "\n[yellow]请选择操作:[/yellow]\n"
+        "  [1] 查看认证指南\n"
+        "  [2] 返回主菜单\n"
+        "  [3] 重试下载",
+        choices=["1", "2", "3"],
+        default="2",
+    )
+
+
+def show_auth_guide():
+    """显示详细认证指南"""
+    guide = Panel.fit(
+        "[bold]HuggingFace 认证指南[/bold]\n\n"
+        "[yellow]方法 1: 使用 HF_TOKEN 环境变量 (推荐)[/yellow]\n"
+        "  1. 访问 https://huggingface.co/settings/tokens\n"
+        "  2. 点击 [green]New token[/green]\n"
+        "  3. 输入名称，选择 [green]read[/green] 权限\n"
+        "  4. 复制 token\n\n"
+        "  PowerShell:\n"
+        '    [cyan]$env:HF_TOKEN = "your_token_here"[/cyan]\n\n'
+        "  CMD:\n"
+        "    [cyan]set HF_TOKEN=your_token_here[/cyan]\n\n"
+        "[yellow]方法 2: 使用 huggingface-cli[/yellow]\n"
+        "  1. 安装 CLI: [cyan]pip install huggingface-cli[/cyan]\n"
+        "  2. 登录: [cyan]huggingface-cli login[/cyan]\n"
+        "  3. 输入 token 完成认证\n\n"
+        "[yellow]注意事项[/yellow]\n"
+        "  - Token 需要 [green]read[/green] 或 [green]repo[/green] 权限\n"
+        "  - 设置后需要重启当前终端才能生效\n"
+        "  - 推荐使用环境变量而非 CLI 登录（更稳定）",
+        title="认证指南",
+        border_style="cyan",
+    )
+    rprint(guide)
+
+
 # === 下载会话 ===
 class DownloadSession:
     """
