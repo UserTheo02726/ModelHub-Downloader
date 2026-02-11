@@ -162,6 +162,50 @@ class DownloadSession:
 
         return value
 
+    def show_config_summary(self) -> str:
+        """
+        显示配置汇总页
+
+        Returns:
+            str: 用户操作
+            - "": 开始下载
+            - "1"/"2"/"3": 修改对应配置项
+            - "m": 返回主菜单
+            - "q": 退出
+        """
+        from rich.prompt import Prompt
+        from rich.table import Table
+
+        # 创建配置表格
+        t = Table(title="下载配置", show_header=False, box=None)
+        t.add_column("选项", style="cyan", width=18)
+        t.add_column("值", style="green")
+
+        # Model ID
+        model_display = self.config.model_id or "[未设置]"
+        t.add_row("1) Model ID", model_display)
+
+        # Source
+        source_display_map = {
+            "ms": "ModelScope (推荐)",
+            "hf": "HuggingFace",
+            "auto": "Auto (自动尝试)",
+        }
+        source_display = source_display_map.get(self.config.source, self.config.source)
+        t.add_row("2) Source", source_display)
+
+        # Output
+        t.add_row("3) Output", self.config.output_dir)
+
+        rprint("\n")
+        rprint(t)
+        rprint("\n")
+
+        # 返回操作
+        return Prompt.ask(
+            "[Enter] 开始下载  [1/2/3] 修改  [m] 主菜单  [q] 退出", default=""
+        )
+
 
 # === 异常类 ===
 class ModelDownloadError(Exception):
