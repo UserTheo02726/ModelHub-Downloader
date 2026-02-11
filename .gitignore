@@ -37,8 +37,13 @@ Thumbs.db
 .rult/
 /
 
-# Project.ruy specific
+# Project specific
 .ref/
 .gitignore
 coverage/
 .htmlcov/
+
+# Local development (temporary files)
+docs/
+tests/
+models/
