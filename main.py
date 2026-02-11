@@ -67,6 +67,54 @@ class DownloadConfig:
         self.output_dir = DEFAULT_OUTPUT
 
 
+# === 下载会话 ===
+class DownloadSession:
+    """
+    下载会话管理类
+
+    负责协调整个交互式下载流程:
+    - 主菜单显示和导航
+    - 下载配置流程
+    - 下载执行
+    - 下载后继续选项
+    """
+
+    def __init__(self):
+        self.config = DownloadConfig()
+        self.download_history: list[str] = []
+
+    def add_to_history(self, model_id: str):
+        """
+        添加模型到下载历史
+
+        Args:
+            model_id: 成功下载的模型 ID
+        """
+        self.download_history.append(model_id)
+
+    def show_main_menu(self) -> str:
+        """
+        显示主菜单并获取用户选择
+
+        Returns:
+            str: 用户选择的菜单项 ("1", "2", "3", "4")
+        """
+        from rich.prompt import Prompt
+        from rich.panel import Panel
+
+        menu = Panel.fit(
+            "[bold cyan]ModelHub Downloader[/bold cyan]\n\n"
+            "  1) 开始下载\n"
+            "  2) 查看当前配置\n"
+            "  3) 清理缓存\n"
+            "  4) 退出",
+            border_style="cyan",
+        )
+        rprint(menu)
+
+        return Prompt.ask("选择", choices=["1", "2", "3", "4"], default="1")
+
+
 # === 异常类 ===
 class ModelDownloadError(Exception):
     """模型下载基异常"""
