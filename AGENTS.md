@@ -1,71 +1,75 @@
 # PROJECT KNOWLEDGE BASE
 
 **Generated:** 2026-02-11
-**Project:** ModelHub-Downloader (单文件 CLI 工具)
+**Commit:** a3bd8c9
+**Branch:** main
 
 ## OVERVIEW
 
-公开模型快速下载工具，支持 HuggingFace 和 ModelScope 双平台下载。
+公开模型快速下载 CLI 工具，支持 HuggingFace 和 ModelScope 双平台下载。使用 Typer + Rich 构建，无认证架构。
 
 ## STRUCTURE
 
 ```
 ./
-├── ModelHub-Downloader.py    # 唯一入口文件 (620行)
-├── requirements.txt           # 依赖: huggingface_hub, modelscope, tqdm, rich
-├── README.md                  # 用户文档
-└── LICENSE                    # MIT
+├── main.py              # CLI入口 (Typer)
+├── core/
+│   └── downloader.py    # 核心下载逻辑 (ModelDownloader类)
+├── utils/
+│   └── progress.py      # Rich进度条工具
+├── requirements.txt     # 依赖: typer, rich, huggingface_hub, modelscope
+├── README.md            # 用户文档
+└── LICENSE              # MIT
 ```
 
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
 |------|----------|-------|
-| 主程序 | `ModelHub-Downloader.py` | 单一入口 |
-| CLI 参数 | `main()` (L570) | argparse 配置 |
-| 下载逻辑 | `ModelDownloader` 类 | 核心业务逻辑 |
-| 验证/缓存 | `_verify_download()`, `_auto_clean_*_cache()` | 完整性校验 |
+| CLI入口 | `main.py` | Typer app，4个子命令 |
+| 下载核心 | `core/downloader.py` | ModelDownloader类，双源支持 |
+| 进度条 | `utils/progress.py` | Rich进度条封装 |
 
 ## CODE MAP
 
 | Symbol | Type | Location | Role |
 |--------|------|----------|------|
-| `ModelDownloader` | Class | L64 | 下载器主类 |
-| `_download_from_hf()` | Method | L327 | HuggingFace 下载 |
-| `_download_from_ms()` | Method | L393 | ModelScope 下载 |
-| `_verify_download()` | Method | L216 | 完整性校验 |
-| `_auto_clean_hf_cache()` | Method | L239 | HF 缓存清理 |
-| `_auto_clean_ms_cache()` | Method | L262 | MS 缓存清理 |
-| `main()` | Function | L570 | CLI 入口 |
-| `run()` | Method | L495 | 主循环 |
+| `app` | Typer | main.py | CLI应用 |
+| `download()` | Command | main.py | 下载子命令 |
+| `interactive()` | Command | main.py | 交互模式 |
+| `list_sources()` | Command | main.py | 列出可用源 |
+| `clean_cache()` | Command | main.py | 清理缓存 |
+| `ModelDownloader` | Class | core/downloader.py | 下载器 |
+| `download_hf()` | Method | core/downloader.py | HF下载 |
+| `download_ms()` | Method | core/downloader.py | MS下载 |
+| `validate_model_id()` | Method | core/downloader.py | ID验证 |
+
+## CONVENTIONS
+
+- **默认源**: ModelScope (`--source ms`)
+- **CLI风格**: 使用Typer，命令分组
+- **无认证**: 直接使用huggingface_hub/modelscope公开API
 
 ## ANTI-PATTERNS
 
-- **README 与文件名不一致**: README 引用 `model_downloader.py`，实际为 `ModelHub-Downloader.py`
-- **空目录**: `src/`, `test_download/` 存在但无代码
-- **缺少版本声明**: 无 `__version__` 变量
-
-## UNIQUE STYLES
-
-- **注释标记**: 使用 `★` 标记核心代码 (L362)
-- **分隔线**: 使用 `'═' * 50` 视觉分隔 (L511)
-- **键盘中断处理**: 明确处理 `KeyboardInterrupt` 和 `EOFError`
+- **禁止**: 修改`.ref/`目录（参考文件）
+- **禁止**: 提交`__pycache__/`, `.ruff_cache/`
 
 ## COMMANDS
 
 ```bash
-# 开发运行
-python ModelHub-Downloader.py
+# 安装依赖
+pip install -r requirements.txt
 
-# 交互模式
-python ModelHub-Downloader.py -m Qwen/Qwen3-ASR-1.7B -s auto -o ./models
-
-# 清理缓存
-python ModelHub-Downloader.py --clean-cache
+# CLI使用
+python main.py --help
+python main.py download Qwen/Qwen3-ASR-1.7B --source ms
+python main.py interactive
+python main.py clean --all
 ```
 
 ## NOTES
 
-- 单文件架构，无需分包
-- 依赖检查在模块加载时执行 (L24-50)
-- 缓存尊重 `HF_HOME` 和 `MODELSCOPE_CACHE` 环境变量
+- ModelScope为中国用户推荐源（默认）
+- 无需API密钥即可下载公开模型
+- 缓存尊重`HF_HOME`和`MODELSCOPE_CACHE`环境变量
