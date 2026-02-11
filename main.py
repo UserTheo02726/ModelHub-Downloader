@@ -22,6 +22,7 @@ from rich.table import Table
 
 try:
     from huggingface_hub import snapshot_download, HfApi
+    from huggingface_hub.errors import GatedRepoError
 except ImportError:
     print("Error: pip install huggingface_hub")
     sys.exit(1)
@@ -613,6 +614,18 @@ class ModelDownloader:
             rprint(f"  [green]OK[/green]")
             logger.info(f"Successfully downloaded {model_id} from HF")
             return True
+        except GatedRepoError as e:
+            # Gated model 需要用户认证
+            rprint(f"\n[red]错误: 模型 {model_id} 是受限制模型 (Gated Model)[/red]")
+            rprint("[yellow]解决方案:[/yellow]")
+            rprint(f"  1. 访问 https://huggingface.co/{model_id}")
+            rprint("  2. 登录 HuggingFace 账户并接受使用协议")
+            rprint("  3. 设置环境变量 HF_TOKEN 或运行: huggingface-cli login")
+            raise DownloadError(
+                model_id,
+                "HF",
+                Exception(f"Gated model: {model_id}. Please authenticate first."),
+            ) from e
         except Exception as e:
             rprint(f"  [red]Error: {e}[/red]")
             logger.error(f"Download failed for {model_id} from HF", exc_info=True)
@@ -811,7 +824,7 @@ def interactive_cmd():
                             else:
                                 # 退出
                                 rprint("[yellow]再见！[/yellow]")
-                                raise typer.Exit(0)
+                                sys.exit(0)
 
             elif choice == "2":
                 # 查看当前配置
@@ -824,11 +837,11 @@ def interactive_cmd():
             elif choice == "4":
                 # 退出
                 rprint("[yellow]再见！[/yellow]")
-                raise typer.Exit(0)
+                sys.exit(0)
 
-    except KeyboardInterrupt:
-        rprint("\n[yellow]已取消[/yellow]")
-        raise typer.Exit(0)
+    except (KeyboardInterrupt, typer.Exit):
+        rprint("\n[yellow]再见！[/yellow]")
+        sys.exit(0)
 
 
 @app.callback()
