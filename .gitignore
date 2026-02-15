@@ -47,3 +47,4 @@ coverage/
 docs/
 tests/
 models/
+.agent/
